@@ -1,7 +1,9 @@
 import { create } from 'zustand'
+import type { Diagram } from '../types/diagram'
 import type { Furniture, FurnitureName } from '../types/furniture'
 import type { JointType } from '../types/jointType'
 import type { Member } from '../types/member'
+import type { DisassemblyStep } from '../types/step'
 import { db, ensureSeedData } from '../utils/db'
 
 export type JointDraft = Omit<JointType, 'id' | 'schemaRev'>
@@ -16,6 +18,7 @@ interface JointState {
   loading: boolean
   loadAll: () => Promise<void>
   addJoint: (draft: JointDraft) => Promise<JointType>
+  duplicateJoint: (sourceId: string, name: string) => Promise<JointType | null>
   addFurniture: (draft: FurnitureDraft) => Promise<Furniture>
   setSelectedJoint: (id: string) => void
   updateMemberDimensions: (
@@ -27,6 +30,16 @@ interface JointState {
 
 function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function remapSvgMemberIds(markup: string, memberIdMap: Map<string, string>): string {
+  let remapped = markup
+  memberIdMap.forEach((newId, oldId) => {
+    remapped = remapped
+      .split(`data-member-id="${oldId}"`).join(`data-member-id="${newId}"`)
+      .split(`data-member-id='${oldId}'`).join(`data-member-id='${newId}'`)
+  })
+  return remapped
 }
 
 export const useJointStore = create<JointState>((set, get) => ({
@@ -74,6 +87,72 @@ export const useJointStore = create<JointState>((set, get) => ({
       joints: [...state.joints, joint].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')),
       selectedJointId: joint.id,
       stepCounts: { ...state.stepCounts, [joint.id]: 0 },
+    }))
+    return joint
+  },
+
+  duplicateJoint: async (sourceId, name) => {
+    const trimmed = name.trim()
+    if (!trimmed) return null
+    const source = await db.joints.get(sourceId)
+    if (!source) return null
+    const [sourceMembers, sourceSteps, sourceDiagrams, sourceFurniture] = await Promise.all([
+      db.members.where('jointTypeId').equals(sourceId).toArray(),
+      db.steps.where('jointTypeId').equals(sourceId).toArray(),
+      db.diagrams.where('jointTypeId').equals(sourceId).toArray(),
+      db.furniture.where('jointTypeId').equals(sourceId).toArray(),
+    ])
+    const joint: JointType = {
+      ...source,
+      id: createId('joint'),
+      name: trimmed as JointType['name'],
+      copiedFromId: source.id,
+      schemaRev: 2,
+    }
+    const memberIdMap = new Map<string, string>()
+    const copiedMembers: Member[] = sourceMembers.map((member) => {
+      const id = createId('member')
+      memberIdMap.set(member.id, id)
+      return { ...member, id, jointTypeId: joint.id, schemaRev: 2 }
+    })
+    const stepIdMap = new Map<string, string>()
+    const copiedSteps: DisassemblyStep[] = sourceSteps.map((step) => {
+      const id = createId('step')
+      stepIdMap.set(step.id, id)
+      return { ...step, id, jointTypeId: joint.id, schemaRev: 2 }
+    })
+    const copiedDiagrams: Diagram[] = sourceDiagrams.map((diagram) => ({
+      ...diagram,
+      id: createId('diagram'),
+      jointTypeId: joint.id,
+      stepId: stepIdMap.get(diagram.stepId) ?? diagram.stepId,
+      svgMarkup: remapSvgMemberIds(diagram.svgMarkup, memberIdMap),
+      hitAreas: diagram.hitAreas.map((area) => ({
+        ...area,
+        id: createId('hit'),
+        memberId: memberIdMap.get(area.memberId) ?? area.memberId,
+      })),
+      schemaRev: 2,
+    }))
+    const copiedFurniture: Furniture[] = sourceFurniture.map((item) => ({
+      ...item,
+      id: createId('furniture'),
+      jointTypeId: joint.id,
+      schemaRev: 2,
+    }))
+    await db.transaction('rw', [db.joints, db.members, db.steps, db.diagrams, db.furniture], async () => {
+      await db.joints.add(joint)
+      await db.members.bulkAdd(copiedMembers)
+      await db.steps.bulkAdd(copiedSteps)
+      await db.diagrams.bulkAdd(copiedDiagrams)
+      await db.furniture.bulkAdd(copiedFurniture)
+    })
+    set((state) => ({
+      joints: [...state.joints, joint].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')),
+      members: [...state.members, ...copiedMembers],
+      furniture: [...state.furniture, ...copiedFurniture],
+      stepCounts: { ...state.stepCounts, [joint.id]: copiedSteps.length },
+      selectedJointId: joint.id,
     }))
     return joint
   },

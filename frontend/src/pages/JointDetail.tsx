@@ -1,11 +1,13 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { BlankPanel } from '../components/common/BlankPanel'
+import { CopyJointPanel } from '../components/common/CopyJointPanel'
 import { DifficultyTag } from '../components/common/DifficultyTag'
 import { SizeField } from '../components/common/SizeField'
 import { StepRail } from '../components/common/StepRail'
 import { useStepOrder } from '../hooks/useStepOrder'
 import { useJointStore } from '../stores/jointStore'
+import type { JointType } from '../types/jointType'
 import { checkTolerance, formatDimension } from '../utils/measure'
 import { exportJointData } from '../utils/export'
 
@@ -19,12 +21,16 @@ export default function JointDetail() {
   const loadAll = useJointStore((state) => state.loadAll)
   const updateMemberDimensions = useJointStore((state) => state.updateMemberDimensions)
   const { steps, totalDurationSec, currentStepIndex, move, setCurrentStep } = useStepOrder(id)
+  const [copySource, setCopySource] = useState<JointType | null>(null)
 
   useEffect(() => {
     void loadAll()
   }, [loadAll])
 
   const joint = joints.find((item) => item.id === id)
+  const sourceJoint = joint?.copiedFromId
+    ? joints.find((item) => item.id === joint.copiedFromId)
+    : undefined
   const currentMembers = members
     .filter((member) => member.jointTypeId === id)
     .sort((a, b) => a.lengthMm - b.lengthMm)
@@ -58,6 +64,14 @@ export default function JointDetail() {
               <span className="rounded-full border border-wood-100 bg-white px-3 py-1 text-xs text-wood-700">{joint.family}</span>
               <DifficultyTag difficulty={joint.difficulty} />
               <span className="text-xs text-stone-500">{joint.glueNeeded ? '建议配合胶合' : '可拆式干装'}</span>
+              {sourceJoint ? (
+                <Link
+                  to={`/joints/${sourceJoint.id}`}
+                  className="rounded-full border border-wood-100 bg-wood-50 px-3 py-1 text-xs text-wood-700 transition hover:border-wood-500"
+                >
+                  复制自 {sourceJoint.name}
+                </Link>
+              ) : null}
             </div>
             <h1 className="mt-5 text-3xl font-bold tracking-tight text-wood-900 sm:text-4xl">{joint.name} · 结构详情</h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-stone-600">{joint.strengthNote}</p>
@@ -71,9 +85,14 @@ export default function JointDetail() {
         <div className="flex flex-wrap gap-3 border-t border-wood-100 bg-wood-50/60 px-6 py-4 sm:px-8">
           <Link className="primary-button" to={`/joints/${joint.id}/steps`}>编排拆装步序</Link>
           <Link className="secondary-button" to={`/joints/${joint.id}/diagram`}>进入示意图绘制台</Link>
+          <button type="button" className="secondary-button" data-testid="copy-joint" onClick={() => setCopySource(joint)}>复制此类型</button>
           <button type="button" className="secondary-button" onClick={() => void exportJointData(joint.id, joint.name)}>导出当前类型</button>
         </div>
       </section>
+
+      {copySource ? (
+        <CopyJointPanel source={copySource} onClose={() => setCopySource(null)} />
+      ) : null}
 
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4">

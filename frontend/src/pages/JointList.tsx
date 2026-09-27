@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { BlankPanel } from '../components/common/BlankPanel'
+import { CopyJointPanel } from '../components/common/CopyJointPanel'
 import { DifficultyTag } from '../components/common/DifficultyTag'
 import { useJointStore } from '../stores/jointStore'
 import type { JointDifficulty, JointFamily, JointName, JointType } from '../types/jointType'
@@ -34,6 +35,7 @@ export default function JointList() {
   const addJoint = useJointStore((state) => state.addJoint)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<JointFormState>(initialForm)
+  const [copySource, setCopySource] = useState<JointType | null>(null)
   const familyGroups = Array.from(new Set([...families, ...joints.map((joint) => joint.family)]))
   const difficultyGroups = Array.from(new Set([...difficulties, ...joints.map((joint) => joint.difficulty)]))
 
@@ -170,6 +172,10 @@ export default function JointList() {
         </form>
       ) : null}
 
+      {copySource ? (
+        <CopyJointPanel source={copySource} onClose={() => setCopySource(null)} />
+      ) : null}
+
       {joints.length === 0 && !loading ? (
         <BlankPanel title="图鉴尚无记录" description="点击“新建榫卯类型”，录入第一项木作节点。" />
       ) : (
@@ -198,6 +204,13 @@ export default function JointList() {
                             joint={joint}
                             memberCount={members.filter((member) => member.jointTypeId === joint.id).length}
                             stepCount={stepCounts[joint.id] ?? 0}
+                            sourceName={joint.copiedFromId
+                              ? joints.find((item) => item.id === joint.copiedFromId)?.name
+                              : undefined}
+                            onCopy={(target) => {
+                              setCopySource(target)
+                              window.scrollTo({ top: 0, behavior: 'smooth' })
+                            }}
                           />
                         ))}
                       </div>
@@ -217,9 +230,11 @@ interface JointCardProps {
   joint: JointType
   memberCount: number
   stepCount: number
+  sourceName?: string
+  onCopy: (joint: JointType) => void
 }
 
-function JointCard({ joint, memberCount, stepCount }: JointCardProps) {
+function JointCard({ joint, memberCount, stepCount, sourceName, onCopy }: JointCardProps) {
   return (
     <Link
       to={`/joints/${joint.id}`}
@@ -232,8 +247,27 @@ function JointCard({ joint, memberCount, stepCount }: JointCardProps) {
           <div>
             <span className="text-xs text-wood-500">{joint.family}</span>
             <h3 className="mt-1 text-xl font-bold text-wood-900">{joint.name}</h3>
+            {sourceName ? (
+              <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-wood-50 px-2.5 py-0.5 text-[11px] text-wood-700">
+                复制自 {sourceName}
+              </span>
+            ) : null}
           </div>
-          <DifficultyTag difficulty={joint.difficulty} compact />
+          <div className="flex items-center gap-2">
+            <DifficultyTag difficulty={joint.difficulty} compact />
+            <button
+              type="button"
+              data-testid="copy-joint"
+              className="rounded-lg border border-wood-100 bg-white px-2.5 py-1.5 text-xs text-wood-700 transition hover:border-wood-500 hover:bg-wood-50"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onCopy(joint)
+              }}
+            >
+              复制
+            </button>
+          </div>
         </div>
         <p className="mt-4 min-h-12 text-sm leading-6 text-stone-600">{joint.strengthNote}</p>
         <div className="mt-5 flex items-center gap-4 border-t border-stone-100 pt-4 text-xs text-stone-500">
