@@ -25,6 +25,9 @@ export default function JointDetail() {
   }, [loadAll])
 
   const joint = joints.find((item) => item.id === id)
+  const copiedFrom = joint?.copiedFromId
+    ? joints.find((item) => item.id === joint.copiedFromId)
+    : undefined
   const currentMembers = members
     .filter((member) => member.jointTypeId === id)
     .sort((a, b) => a.lengthMm - b.lengthMm)
@@ -58,6 +61,9 @@ export default function JointDetail() {
               <span className="rounded-full border border-wood-100 bg-white px-3 py-1 text-xs text-wood-700">{joint.family}</span>
               <DifficultyTag difficulty={joint.difficulty} />
               <span className="text-xs text-stone-500">{joint.glueNeeded ? '建议配合胶合' : '可拆式干装'}</span>
+              {copiedFrom ? (
+                <span className="rounded-full bg-stone-100 px-3 py-1 text-xs text-stone-500" data-testid="copied-from">复制自 · {copiedFrom.name}</span>
+              ) : null}
             </div>
             <h1 className="mt-5 text-3xl font-bold tracking-tight text-wood-900 sm:text-4xl">{joint.name} · 结构详情</h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-stone-600">{joint.strengthNote}</p>

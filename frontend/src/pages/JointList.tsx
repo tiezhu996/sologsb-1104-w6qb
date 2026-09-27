@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { BlankPanel } from '../components/common/BlankPanel'
 import { DifficultyTag } from '../components/common/DifficultyTag'
 import { useJointStore } from '../stores/jointStore'
@@ -32,8 +32,13 @@ export default function JointList() {
   const loading = useJointStore((state) => state.loading)
   const loadAll = useJointStore((state) => state.loadAll)
   const addJoint = useJointStore((state) => state.addJoint)
+  const duplicateJoint = useJointStore((state) => state.duplicateJoint)
+  const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<JointFormState>(initialForm)
+  const [copySource, setCopySource] = useState<JointType | null>(null)
+  const [copyName, setCopyName] = useState('')
+  const [copying, setCopying] = useState(false)
   const familyGroups = Array.from(new Set([...families, ...joints.map((joint) => joint.family)]))
   const difficultyGroups = Array.from(new Set([...difficulties, ...joints.map((joint) => joint.difficulty)]))
 
@@ -51,6 +56,25 @@ export default function JointList() {
     })
     setForm(initialForm)
     setShowForm(false)
+  }
+
+  const openCopyDialog = (joint: JointType) => {
+    setCopySource(joint)
+    setCopyName(`${joint.name} 副本`)
+  }
+
+  const submitCopy = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!copySource || !copyName.trim() || copying) return
+    setCopying(true)
+    try {
+      const created = await duplicateJoint(copySource.id, copyName.trim() as JointName)
+      setCopySource(null)
+      setCopyName('')
+      navigate(`/joints/${created.id}`)
+    } finally {
+      setCopying(false)
+    }
   }
 
   return (
@@ -170,6 +194,37 @@ export default function JointList() {
         </form>
       ) : null}
 
+      {copySource ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 px-4" role="dialog" aria-modal="true" aria-label="复制榫卯类型">
+          <form className="panel w-full max-w-md p-6" data-testid="form-copy-joint" onSubmit={(event) => void submitCopy(event)}>
+            <div>
+              <h2 className="text-lg font-semibold text-wood-900">复制「{copySource.name}」</h2>
+              <p className="mt-1 text-xs leading-5 text-stone-500">
+                构件、拆装步骤、示意图与家具关联会一并复制，副本可独立修改，不影响原类型。
+              </p>
+            </div>
+            <label className="mt-5 block space-y-1.5 text-sm">
+              <span className="font-medium text-stone-700">新类型名称</span>
+              <input
+                required
+                autoFocus
+                className="input-field"
+                data-testid="field-copy-name"
+                value={copyName}
+                onChange={(event) => setCopyName(event.target.value)}
+                placeholder="给副本起个名字"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" className="secondary-button" onClick={() => setCopySource(null)}>取消</button>
+              <button type="submit" className="primary-button" data-testid="submit-copy-joint" disabled={copying || !copyName.trim()}>
+                {copying ? '正在复制…' : '开始复制'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {joints.length === 0 && !loading ? (
         <BlankPanel title="图鉴尚无记录" description="点击“新建榫卯类型”，录入第一项木作节点。" />
       ) : (
@@ -198,6 +253,10 @@ export default function JointList() {
                             joint={joint}
                             memberCount={members.filter((member) => member.jointTypeId === joint.id).length}
                             stepCount={stepCounts[joint.id] ?? 0}
+                            copiedFromName={joint.copiedFromId
+                              ? joints.find((candidate) => candidate.id === joint.copiedFromId)?.name
+                              : undefined}
+                            onCopy={() => openCopyDialog(joint)}
                           />
                         ))}
                       </div>
@@ -217,31 +276,45 @@ interface JointCardProps {
   joint: JointType
   memberCount: number
   stepCount: number
+  copiedFromName?: JointName
+  onCopy: () => void
 }
 
-function JointCard({ joint, memberCount, stepCount }: JointCardProps) {
+function JointCard({ joint, memberCount, stepCount, copiedFromName, onCopy }: JointCardProps) {
   return (
-    <Link
-      to={`/joints/${joint.id}`}
+    <div
       data-testid="row-joint"
       className="panel group relative overflow-hidden p-5 transition hover:-translate-y-0.5 hover:border-wood-500 hover:shadow-md"
     >
       <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-full bg-wood-50 transition group-hover:bg-wood-100" />
       <div className="relative">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <span className="text-xs text-wood-500">{joint.family}</span>
-            <h3 className="mt-1 text-xl font-bold text-wood-900">{joint.name}</h3>
+        <Link to={`/joints/${joint.id}`} className="block">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <span className="text-xs text-wood-500">{joint.family}</span>
+              <h3 className="mt-1 text-xl font-bold text-wood-900">{joint.name}</h3>
+              {copiedFromName ? (
+                <p className="mt-1 text-[11px] text-stone-400" data-testid="copied-from">复制自 · {copiedFromName}</p>
+              ) : null}
+            </div>
+            <DifficultyTag difficulty={joint.difficulty} compact />
           </div>
-          <DifficultyTag difficulty={joint.difficulty} compact />
-        </div>
-        <p className="mt-4 min-h-12 text-sm leading-6 text-stone-600">{joint.strengthNote}</p>
+          <p className="mt-4 min-h-12 text-sm leading-6 text-stone-600">{joint.strengthNote}</p>
+        </Link>
         <div className="mt-5 flex items-center gap-4 border-t border-stone-100 pt-4 text-xs text-stone-500">
           <span><strong className="mr-1 text-base text-wood-700">{memberCount}</strong>件构件</span>
           <span><strong className="mr-1 text-base text-wood-700">{stepCount}</strong>步拆装</span>
           <span className="ml-auto text-wood-700">{joint.glueNeeded ? '配合用胶' : '免胶结构'}</span>
+          <button
+            type="button"
+            data-testid="copy-joint"
+            className="rounded-lg border border-wood-100 px-2.5 py-1 text-xs text-wood-700 transition hover:border-wood-500 hover:bg-wood-50"
+            onClick={onCopy}
+          >
+            复制
+          </button>
         </div>
       </div>
-    </Link>
+    </div>
   )
 }
